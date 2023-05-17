@@ -10,7 +10,7 @@ import java.util.*;
 
 public class Observations {
 
-    private static final int LIST_INDEX_POS_FOR_OBS_CUTOFF = 35;
+    private static final int LIST_INDEX_POS_FOR_OBS_CUTOFF = 10;
     private static final String LIST_INDEX_BIN_NAME_FOR_OBS_CUTOFF = "indexOfReqObs";
 
     String namespace = "test";
