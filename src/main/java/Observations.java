@@ -6,11 +6,17 @@ import com.aerospike.client.policy.BatchPolicy;
 import com.aerospike.client.policy.ClientPolicy;
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 public class Observations {
 
-    private static final int LIST_INDEX_POS_FOR_OBS_CUTOFF = 10;
+    private static final int LIST_INDEX_POS_FOR_OBS_CUTOFF = 30;
     private static final String LIST_INDEX_BIN_NAME_FOR_OBS_CUTOFF = "indexOfReqObs";
 
     String namespace = "test";
@@ -23,6 +29,9 @@ public class Observations {
     String observationBinName = "observations";
     String listOfObsBinName = "obs";
     String sumObsBinName = "totalObs";
+
+    int ITEMS_MAPKEYS = 100;
+    int ITEMS_DATAPOINTS = 750;
 
     public Observations() throws Exception {}
 
@@ -121,4 +130,194 @@ public class Observations {
         batchRecords.add(new BatchWrite(key,operations));
         return client.operate(batchPolicy,batchRecords);
     }
+
+
+
+    /**
+     * The following is simply testing if we can reduce the size of the record.
+     * Use Maps as part of the schema
+     *
+     * {
+     *   "data": [
+     *     [
+     *       {
+     *         "obs": [
+     *           {
+     *             "d": 9223372036854775807
+     *           },
+     *           {
+     *             "d": 9223372036854775807
+     *           }
+     *         ]
+     *       },
+     *       {
+     *         "obs": [
+     *           {
+     *             "d": 9223372036854775807
+     *           },
+     *           {
+     *             "d": 9223372036854775807
+     *           }
+     *         ]
+     *       }
+     *     ]
+     *   ]
+     * }
+     * Data size is 953.094 KB
+     *
+     *
+     */
+    @Test
+    public void createListWithDocumentValues()
+    {
+        Key key = new Key(namespace, set, primaryKey);
+
+        AerospikeClient client = getClient();
+        client.delete(null,key);
+        BatchPolicy batchPolicy = new BatchPolicy(client.writePolicyDefault);
+        batchPolicy.setTimeout(50000);
+
+        List<BatchRecord> batchRecords = new ArrayList<>();
+
+        List<Value> data = new ArrayList<>();                   // Outer List
+
+        for ( int i=0; i< ITEMS_MAPKEYS; i++){
+            List<Value> obs = new ArrayList<>();
+            Map<Value, Value> mapKey = new HashMap<>();         // Create 100 MapKeys
+            mapKey.put( Value.get("obs"), Value.get(obs) );
+            for ( int j=0; j < ITEMS_DATAPOINTS; j++ ) {
+                Map<Value, Value> datapoint = new HashMap<>();  // Create 1000 datapoint Maps
+                datapoint.put( Value.get("d"), Value.get(Long.MAX_VALUE) );
+                obs.add(Value.get(datapoint));                  // Add to Obs List
+            }
+            data.add(Value.get(mapKey));
+        }
+        Operation[] operations = Operation.array(
+                ListOperation.append("data", Value.get(data))
+        );
+        batchRecords.add(new BatchWrite(key,operations));
+        boolean success = client.operate(batchPolicy,batchRecords);
+        System.out.println( success );
+    }
+
+
+    /**
+     * Removes the inner map inside obs
+     *
+     * {
+     *   "data": [
+     *     [
+     *       {
+     *         "obs": [
+     *           9223372036854775807,
+     *           9223372036854775807
+     *         ]
+     *       },
+     *       {
+     *         "obs": [
+     *           9223372036854775807,
+     *           9223372036854775807
+     *         ]
+     *       }
+     *     ]
+     *   ]
+     * }
+     *
+     * Size: 660.125 KB
+     */
+    @Test
+    public void createListWithLongValuesNoInnerMap()
+    {
+        Key key = new Key(namespace, set, primaryKey);
+
+        AerospikeClient client = getClient();
+        BatchPolicy batchPolicy = new BatchPolicy(client.writePolicyDefault);
+        batchPolicy.setTimeout(50000);
+        client.delete(null,key);
+
+        List<BatchRecord> batchRecords = new ArrayList<>();
+
+        List<Value> data = new ArrayList<>();                   // Outer List
+
+        for ( int i=0; i< ITEMS_MAPKEYS; i++){
+            List<Value> obs = new ArrayList<>();
+            Map<Value, Value> mapKey = new HashMap<>();         // Create 100 MapKeys
+            mapKey.put( Value.get("obs"), Value.get(obs) );
+            for ( int j=0; j < ITEMS_DATAPOINTS; j++ ) {
+                obs.add(Value.get(Long.MAX_VALUE));                  // Add to Obs List
+            }
+
+            data.add(Value.get(mapKey));
+        }
+        Operation[] operations = Operation.array(
+                ListOperation.append("data", Value.get(data))
+        );
+        batchRecords.add(new BatchWrite(key,operations));
+        boolean success = client.operate(batchPolicy,batchRecords);
+        System.out.println( success );
+    }
+
+
+    /**
+     * Does not use any maps whatsoever anywhere
+     *
+     * {
+     *   "data": [
+     *     [
+     *       [
+     *         9223372036854775807,
+     *         9223372036854775807
+     *       ],
+     *       [
+     *         9223372036854775807,
+     *         9223372036854775807
+     *       ]
+     *     ]
+     *   ]
+     * }
+     *
+     * Size: 659.547 KB
+     * @throws IOException
+     */
+    @Test
+    public void createListWithLongValuesNoMaps() throws IOException {
+        Key key = new Key(namespace, set, primaryKey);
+
+        AerospikeClient client = getClient();
+        client.delete(null,key);
+        BatchPolicy batchPolicy = new BatchPolicy(client.writePolicyDefault);
+        batchPolicy.setTimeout(50000);
+
+        List<BatchRecord> batchRecords = new ArrayList<>();
+
+        List<Value> data = new ArrayList<>();                   // Outer List
+
+        for ( int i=0; i< ITEMS_MAPKEYS; i++){
+            List<Value> obs = new ArrayList<>();
+            for ( int j=0; j < ITEMS_DATAPOINTS; j++ ) {
+                obs.add(Value.get(Long.MAX_VALUE));                  // Add to Obs List
+            }
+
+            data.add(Value.get(obs));
+        }
+        Operation[] operations = Operation.array(
+                ListOperation.append("data", Value.get(data))
+        );
+        batchRecords.add(new BatchWrite(key,operations));
+        boolean success = client.operate(batchPolicy,batchRecords);
+        System.out.println( success );
+    }
+
+    /**
+     * Compressed:
+     * manage config namespace test param compression to zstd
+     * manage config namespace test param enable-compression;compression-level to 1
+     *
+     * Down to
+     *  208.000 B
+     *  176.000 B
+     *  176.000 B
+     *
+     *  Respectively
+     */
 }
